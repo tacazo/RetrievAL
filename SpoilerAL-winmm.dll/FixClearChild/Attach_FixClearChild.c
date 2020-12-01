@@ -261,8 +261,9 @@ static void __fastcall TSSDir_GetSubjectVec_onOpen(TSSGSubject *const SSGS, TSSG
 			 pos < (TAdjustmentAttribute **)vector_end(attr);
 			 pos++)
 		{
-			const TAdjustmentAttribute *const AElem = *pos;
+			TAdjustmentAttribute *const AElem = *pos;
 #if ABBREV_SELECT
+			TSSGAttributeSelector_PushStack(TSSGCtrl_GetAttributeSelector(SSGC), AElem);
 			list_dword_push_back(TSSGCtrl_GetAttributeSelector(SSGC)->nowAttributeList, (LPDWORD)pos);
 			if (TSSGAttributeElement_GetType(AElem) & multi && AElem->seqElement >= seqElement)
 				seqElement = AElem->seqElement + 1;
@@ -330,7 +331,7 @@ static void __declspec(naked) TSSGCtrl_ChangeDirectorySubject_GetSubjectVec(TSSD
 #define PUSH_EAX  (BYTE)0x50
 #define JNZ_SHORT (BYTE)0x75
 #define NOP       (BYTE)0x90
-#define NOP_X8    0x0000000000841F0Full
+#define NOP_X8          0x0000000000841F0Full
 #define JECXZ     (BYTE)0xE3
 #define CALL_REL  (BYTE)0xE8
 #define JMP_REL32 (BYTE)0xE9
