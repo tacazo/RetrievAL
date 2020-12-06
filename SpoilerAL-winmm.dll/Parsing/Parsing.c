@@ -6945,7 +6945,10 @@ uint64_t __cdecl InternalParsing(TSSGCtrl *this, TSSGSubject *SSGS, const string
 				}
 				lpOperandTop->Quad = 0;
 				if (!ReadProcessMemory(hProcess, lpAddress, &lpOperandTop->Quad, nSize, NULL))
+				{
+					TSSGActionListner_OnSubjectReadError(TSSGCtrl_GetSSGActionListner(this), SSGS, (uint32_t)lpAddress);
 					lpOperandTop->Quad = 0;
+				}
 				switch (lpMarkup->Tag)
 				{
 #ifndef _WIN64
@@ -7203,6 +7206,7 @@ uint64_t __cdecl InternalParsing(TSSGCtrl *this, TSSGSubject *SSGS, const string
 				}
 				else
 				{
+					TSSGActionListner_OnSubjectReadError(TSSGCtrl_GetSSGActionListner(this), SSGS, (uint32_t)lpAddress);
 					lpOperandTop->Quad = 0;
 					lpOperandTop->IsQuad = nSize > sizeof(uint32_t);
 				}
@@ -8796,7 +8800,7 @@ uint64_t __cdecl InternalParsing(TSSGCtrl *this, TSSGSubject *SSGS, const string
 				if (!(uFlags & NUMBER_OF_CHARS))
 				{
 					iResult = 0;
-					if (TMainForm_GetUserMode(MainForm) < 3 || lpMarkup->Tag == TAG_PRINTF && !TSSGCtrl_GetSSGActionListner(this))
+					if (lpMarkup->Tag == TAG_PRINTF && TMainForm_GetUserMode(MainForm) == 2)
 						goto PRINTF_CONTINUE;
 				}
 				nStackSize = 0;
@@ -12675,7 +12679,7 @@ uint64_t __cdecl InternalParsing(TSSGCtrl *this, TSSGSubject *SSGS, const string
 		if (lpBuffer1)
 			HeapFree(hHeap, 0, lpBuffer1);
 	OPEN_ERROR:
-		//TSSGActionListner_OnProcessOpenError(TSSGCtrl_GetSSGActionListner(this), SSGS);
+		TSSGActionListner_OnProcessOpenError(TSSGCtrl_GetSSGActionListner(this), SSGS);
 		goto FAILED;
 
 	READ_ERROR_FREE2:

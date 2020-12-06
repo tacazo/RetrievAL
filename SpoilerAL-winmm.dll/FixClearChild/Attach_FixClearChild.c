@@ -138,7 +138,7 @@ void __fastcall TSSGAttributeSelector_AESet_erase(TSSGAttributeSelector *const t
 {
 	set_iterator const it = set_find(this->AESet, (LPDWORD)&AElem);
 	if (it != set_end(this->AESet))
-		node_alloc_deallocate(set_erase_sans_delete(this->AESet, it)
+		node_alloc_deallocate(tree_erase_sans_delete(this->AESet, it)
 #if !OPTIMIZE_ALLOCATOR
 							  , sizeof(bcb6_std_set_node) + sizeof(DWORD)
 #endif
@@ -445,7 +445,7 @@ EXTERN_C void __cdecl Attach_FixClearChild()
 
 	*(UINT64 *)0x004D5C60 = NOP_X8;
 
-	// push LIt
+	// push allAtteributeVecList iterator
 	*(LPBYTE )(0x004D5CF1 + 0) =         0x83   ;// add  dword ptr [ebx + 0x1C], 2
 	*(LPWORD )(0x004D5CF1 + 3) = BSWAP16(0x0257);// push edi
 	*(LPBYTE ) 0x004D5CF6      = NOP;
