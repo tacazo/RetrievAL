@@ -2083,15 +2083,29 @@ static MARKUP * __stdcall Markup(IN LPSTR lpSrc, IN size_t nSrcLength, OUT size_
 					if (lpPrev->Tag != TAG_PARENTHESIS_OPEN)
 						break;
 					/* FALLTHROUGH */
+				case TAG_ISBADCODEPTR:
+				case TAG_ISBADREADPTR:
+				case TAG_ISBADWRITEPTR:
+				case TAG_ISBADSTRINGPTRA:
+				case TAG_ISBADSTRINGPTRW:
 				case TAG_ATOI:
 				case TAG_WTOI:
 				case TAG_ATOF:
 				case TAG_WTOF:
+				case TAG_MEMDUP:
+				case TAG_WMEMDUP:
 				case TAG_MEMCMP:
 				case TAG_WMEMCMP:
 				case TAG_MEMICMP:
 				case TAG_WMEMICMP:
+				case TAG_MEMCPY:
+				case TAG_WMEMCPY:
+				case TAG_MEMCCPY:
+				case TAG_WMEMCCPY:
+				case TAG_MEMPCPY:
+				case TAG_WMEMPCPY:
 				case TAG_MEMMOVE:
+				case TAG_WMEMMOVE:
 				case TAG_MEMSET8:
 				case TAG_MEMSET16:
 				case TAG_MEMSET32:
@@ -2122,6 +2136,9 @@ static MARKUP * __stdcall Markup(IN LPSTR lpSrc, IN size_t nSrcLength, OUT size_
 				case TAG_STRNINC:
 				case TAG_WCSNINC:
 				case TAG_MBSNINC:
+				case TAG_STRNEXTC:
+				case TAG_MBSNEXTC:
+				case TAG_WCSNEXTC:
 				case TAG_STRNLEN:
 				case TAG_WCSNLEN:
 				case TAG_MBSNLEN:
@@ -7628,7 +7645,7 @@ uint64_t __cdecl InternalParsing(TSSGCtrl *this, TSSGSubject *SSGS, const string
 						__assume(0);
 					}
 				}
-				if (!(lpOperandTop->IsQuad = !IsInteger))
+				if (lpOperandTop->IsQuad = !IsInteger)
 					lpOperandTop->Real = (size_t)lpOperandTop->Quad;
 			}
 			break;
@@ -12323,15 +12340,19 @@ uint64_t __cdecl InternalParsing(TSSGCtrl *this, TSSGSubject *SSGS, const string
 					lpPostfix++;
 					if (!TSSGCtrl_GetSSGActionListner(this))
 						continue;
-					lpGuideText = "& アドレス取得";
+					lpGuideText = lpNext->String;
 #if !defined(__BORLANDC__)
-					nGuideTextLength = 14;
+					nGuideTextLength = lpNext->Length + lpMarkup->Length;
 #endif
 					goto OUTPUT_GUIDE;
 				case TAG_INC:
 					if (!element)
 						break;
 					operand = element->Value;
+					lpGuideText = lpNext->Type & OS_POST ? lpMarkup->String : lpNext->String;
+#if !defined(__BORLANDC__)
+					nGuideTextLength = lpNext->Length + lpMarkup->Length;
+#endif
 					if (!(lpNext->Type & OS_POST))
 					{
 						if (IsInteger)
@@ -12368,15 +12389,15 @@ uint64_t __cdecl InternalParsing(TSSGCtrl *this, TSSGSubject *SSGS, const string
 					lpPostfix++;
 					if (!TSSGCtrl_GetSSGActionListner(this))
 						continue;
-					lpGuideText = lpNext->Type & OS_POST ? "++ 後置" : "++ 前置";
-#if !defined(__BORLANDC__)
-					nGuideTextLength = 7;
-#endif
 					goto OUTPUT_GUIDE;
 				case TAG_DEC:
 					if (!element)
 						break;
 					operand = element->Value;
+					lpGuideText = lpNext->Type & OS_POST ? lpMarkup->String : lpNext->String;
+#if !defined(__BORLANDC__)
+					nGuideTextLength = lpNext->Length + lpMarkup->Length;
+#endif
 					if (!(lpNext->Type & OS_POST))
 					{
 						if (IsInteger)
@@ -12413,10 +12434,6 @@ uint64_t __cdecl InternalParsing(TSSGCtrl *this, TSSGSubject *SSGS, const string
 					lpPostfix++;
 					if (!TSSGCtrl_GetSSGActionListner(this))
 						continue;
-					lpGuideText = lpNext->Type & OS_POST ? "-- 後置" : "-- 前置";
-#if !defined(__BORLANDC__)
-					nGuideTextLength = 7;
-#endif
 					goto OUTPUT_GUIDE;
 				case TAG_RIGHT_ASSIGN:
 				case TAG_LEFT_ASSIGN:
@@ -12467,7 +12484,13 @@ uint64_t __cdecl InternalParsing(TSSGCtrl *this, TSSGSubject *SSGS, const string
 						OPERAND_PUSH(operand);
 					}
 					lpPostfix++;
-					break;
+					if (!TSSGCtrl_GetSSGActionListner(this))
+						continue;
+					lpGuideText = lpNext->String;
+#if !defined(__BORLANDC__)
+					nGuideTextLength = lpNext->Length + lpMarkup->Length;
+#endif
+					goto OUTPUT_GUIDE;
 				case TAG_PROCEDURE:
 					if ((HMODULE)lpOperandTop->Quad)
 					{
@@ -12609,7 +12632,13 @@ uint64_t __cdecl InternalParsing(TSSGCtrl *this, TSSGSubject *SSGS, const string
 						OPERAND_PUSH(operand);
 					}
 					lpPostfix++;
-					break;
+					if (!TSSGCtrl_GetSSGActionListner(this))
+						continue;
+					lpGuideText = lpNext->String;
+#if !defined(__BORLANDC__)
+					nGuideTextLength = lpNext->Length + lpMarkup->Length;
+#endif
+					goto OUTPUT_GUIDE;
 				default:
 					if (bCompoundAssign)
 						goto ASSIGN;
@@ -12680,7 +12709,7 @@ uint64_t __cdecl InternalParsing(TSSGCtrl *this, TSSGSubject *SSGS, const string
 			HeapFree(hHeap, 0, lpBuffer1);
 	OPEN_ERROR:
 		TSSGActionListner_OnProcessOpenError(TSSGCtrl_GetSSGActionListner(this), SSGS);
-		goto FAILED;
+		goto PARSING_ERROR;
 
 	READ_ERROR_FREE2:
 		if (lpBuffer2)
@@ -12690,7 +12719,7 @@ uint64_t __cdecl InternalParsing(TSSGCtrl *this, TSSGSubject *SSGS, const string
 			HeapFree(hHeap, 0, lpBuffer1);
 	READ_ERROR:
 		TSSGActionListner_OnSubjectReadError(TSSGCtrl_GetSSGActionListner(this), SSGS, (uint32_t)lpAddress);
-		goto FAILED;
+		goto PARSING_ERROR;
 
 	WRITE_ERROR_FREE3:
 		if (lpBuffer3)
@@ -12703,7 +12732,7 @@ uint64_t __cdecl InternalParsing(TSSGCtrl *this, TSSGSubject *SSGS, const string
 			HeapFree(hHeap, 0, lpBuffer1);
 	WRITE_ERROR:
 		TSSGActionListner_OnSubjectWriteError(TSSGCtrl_GetSSGActionListner(this), SSGS, (uint32_t)lpAddress);
-		goto FAILED;
+		goto PARSING_ERROR;
 
 	ALLOC_ERROR_FREE2:
 		if (lpBuffer2)
@@ -12734,7 +12763,7 @@ uint64_t __cdecl InternalParsing(TSSGCtrl *this, TSSGSubject *SSGS, const string
 	GUIDE:
 		if (TMainForm_GetUserMode(MainForm) != 1)
 			TMainForm_Guide(lpMessage, 0);
-		goto FAILED;
+		goto PARSING_ERROR;
 	}
 	qwResult = lpOperandTop->Quad;
 FAILED:
