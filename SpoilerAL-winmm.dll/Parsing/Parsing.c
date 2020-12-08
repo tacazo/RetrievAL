@@ -188,23 +188,26 @@ extern HANDLE pHeap;
 
 #include "HashBytes.h"
 
-#define OS_PUSH          0x00000001
-#define OS_OPEN          0x00000002
-#define OS_CLOSE         0x00000004
-#define OS_SPLIT         0x00000008
-#define OS_DELIMITER     0x00000010
-#define OS_MONADIC       0x00000020
-#define OS_POST          0x00000040
-#define OS_SHORT_CIRCUIT 0x00000080
-#define OS_LEFT_ASSIGN   0x00000100
-#define OS_PARENTHESIS   0x00000200
-#define OS_HAS_EXPR      0x00000400
-#define OS_TERNARY       0x00000800
-#define OS_TERNARY_END   0x00001000
-#define OS_LOOP_BEGIN    0x00002000
-#define OS_LOOP_END      0x00004000
-#define OS_RET_OPERAND   0x00008000
-#define OS_STRING        0x00010000
+enum OS
+{
+	OS_PUSH          = 0x00000001,
+	OS_OPEN          = 0x00000002,
+	OS_CLOSE         = 0x00000004,
+	OS_SPLIT         = 0x00000008,
+	OS_DELIMITER     = 0x00000010,
+	OS_MONADIC       = 0x00000020,
+	OS_POST          = 0x00000040,
+	OS_SHORT_CIRCUIT = 0x00000080,
+	OS_LEFT_ASSIGN   = 0x00000100,
+	OS_PARENTHESIS   = 0x00000200,
+	OS_HAS_EXPR      = 0x00000400,
+	OS_TERNARY       = 0x00000800,
+	OS_TERNARY_END   = 0x00001000,
+	OS_LOOP_BEGIN    = 0x00002000,
+	OS_LOOP_END      = 0x00004000,
+	OS_RET_OPERAND   = 0x00008000,
+	OS_STRING        = 0x00010000,
+};
 
 /*
  [Wikipedia] - [ââéZéqÇÃóDêÊèáà ]
@@ -393,9 +396,9 @@ typedef enum {
 	TAG_SWITCH           ,  // 127 switch          OS_PUSH | OS_HAS_EXPR
 	TAG_CASE             ,  // 127 case            OS_PUSH
 	TAG_DEFAULT          ,  // 127 default         OS_PUSH
-	TAG_GOTO             ,  // 127 goto            OS_PUSH
-	TAG_LABEL            ,  // 127                 OS_PUSH
 #endif
+	TAG_GOTO             ,  // 127 goto            OS_PUSH
+	TAG_LABEL            ,  // 127 :               OS_PUSH
 	TAG_PARENTHESIS_OPEN ,  //  64 (               OS_OPEN | OS_PARENTHESIS
 	TAG_ADDR_ADJUST_OPEN ,  //  64 [_              OS_OPEN
 	TAG_ADDR_REPLACE_OPEN,  //  64 [.              OS_OPEN
@@ -406,13 +409,13 @@ typedef enum {
 	TAG_PARSE_INT        ,  //  60 parse_int       OS_PUSH | OS_MONADIC
 	TAG_PARSE_REAL       ,  //  60 parse_real      OS_PUSH | OS_MONADIC
 	TAG_PARSE_RESET      ,  //  60 parse_reset     OS_PUSH | OS_MONADIC
-	TAG_MNAME            ,  //  60 MName           OS_PUSH | OS_MONADIC
 	TAG_PROCEDURE        ,  //  60 ::              OS_PUSH
 	TAG_IMPORT_FUNCTION  ,  //  60 :!              OS_PUSH
 	TAG_IMPORT_REFERENCE ,  //  60 :&              OS_PUSH
 	TAG_MODULENAME       ,  //  60                 OS_PUSH
 	TAG_SECTION          ,  //  60 := :+           OS_PUSH
 	TAG_PROCESSID        ,  //  60 ProcessId       OS_PUSH | OS_MONADIC
+	TAG_MNAME            ,  //  60 MName           OS_PUSH | OS_MONADIC
 	TAG_HNUMBER          ,  //  60 HNumber         OS_PUSH | OS_MONADIC
 	TAG_MEMORY           ,  //  60 Memory          OS_PUSH | OS_MONADIC
 	TAG_ISBADCODEPTR     ,  //  60 IsBadCodePtr    OS_PUSH | OS_MONADIC
@@ -466,6 +469,7 @@ typedef enum {
 	TAG_WTOI             ,  //  60 wtoi            OS_PUSH | OS_MONADIC
 	TAG_ATOF             ,  //  60 atof            OS_PUSH | OS_MONADIC
 	TAG_WTOF             ,  //  60 wtof            OS_PUSH | OS_MONADIC
+	TAG_TICK             ,  //  60 tick            OS_PUSH | OS_MONADIC
 	TAG_RAND32           ,  //  60 rand32          OS_PUSH | OS_MONADIC
 	TAG_RAND64           ,  //  60 rand64          OS_PUSH | OS_MONADIC
 	TAG_MIN              ,  //  60 min             OS_PUSH | OS_MONADIC
@@ -793,9 +797,9 @@ typedef enum {
 	PRIORITY_SWITCH            = 127,   // switch          OS_PUSH | OS_HAS_EXPR
 	PRIORITY_CASE              = 127,   // case            OS_PUSH
 	PRIORITY_DEFAULT           = 127,   // default         OS_PUSH
-	PRIORITY_GOTO              = 127,   // goto            OS_PUSH
-	PRIORITY_LABEL             = 127,   //                 OS_PUSH
 #endif
+	PRIORITY_GOTO              = 127,   // goto            OS_PUSH
+	PRIORITY_LABEL             = 127,   // :               OS_PUSH
 	PRIORITY_PARENTHESIS_OPEN  =  64,   // (               OS_OPEN | OS_PARENTHESIS
 	PRIORITY_ADDR_ADJUST_OPEN  =  64,   // [_              OS_OPEN
 	PRIORITY_ADDR_REPLACE_OPEN =  64,   // [.              OS_OPEN
@@ -1142,10 +1146,10 @@ typedef enum {
 
 typedef struct _MARKUP {
 	TAG                     Tag;
-	size_t                  Length;
+	enum OS                 Type;
 	LPSTR                   String;
+	WORD                    Length;
 	BYTE                    Priority;
-	DWORD                   Type;
 	size_t                  Depth;
 	size_t                  LoopDepth;
 	struct _MARKUP          *Param;
@@ -1375,8 +1379,15 @@ BOOL __fastcall CorrectFunction(MARKUP *lpMarkup, MARKUP *lpEndOfMarkup, size_t 
 {
 	MARKUP *lpFunction, *lpOpen, *lpClose;
 
-	if ((lpOpen = (lpFunction = lpMarkup) + 1) < lpEndOfMarkup &&
-		lpOpen->Tag == TAG_PARENTHESIS_OPEN &&
+	if ((lpOpen = (lpFunction = lpMarkup) + 1) >= lpEndOfMarkup ||
+		lpOpen->Priority <= PRIORITY_MUL && lpOpen->Priority >= PRIORITY_SPLIT)
+	{
+		lpMarkup->Tag = TAG_NOT_OPERATOR;
+		lpMarkup->Type = OS_PUSH;
+		lpMarkup->Priority = PRIORITY_NOT_OPERATOR;
+		return TRUE;
+	}
+	if (lpOpen->Tag == TAG_PARENTHESIS_OPEN &&
 		(lpClose = FindParenthesisClose(lpOpen + 1, lpEndOfMarkup)) < lpEndOfMarkup)
 	{
 		size_t nCount;
@@ -1455,10 +1466,10 @@ static MARKUP * __stdcall Markup(IN LPSTR lpSrc, IN size_t nSrcLength, OUT size_
 		    if (!(lpMarkup = ReAllocMarkup(&lpTagArray, &nNumberOfTag)))                        \
 		        goto FAILED1;                                                                   \
 		    lpMarkup->Tag        = tag;                                                         \
-		    lpMarkup->Length     = length;                                                      \
-		    lpMarkup->String     = p;                                                           \
-		    lpMarkup->Priority   = priority;                                                    \
 		    lpMarkup->Type       = type;                                                        \
+		    lpMarkup->String     = p;                                                           \
+		    lpMarkup->Length     = (WORD)length;                                                \
+		    lpMarkup->Priority   = priority;                                                    \
 		    lpMarkup->Depth      = 0;                                                           \
 		    lpMarkup->Param      = NULL;                                                        \
 		    lpMarkup->Next       = NULL;                                                        \
@@ -1520,7 +1531,9 @@ static MARKUP * __stdcall Markup(IN LPSTR lpSrc, IN size_t nSrcLength, OUT size_
 		case '\r':
 		case ' ':
 		case '#':
+#if !SCOPE_SUPPORT
 		case '@':
+#endif
 		case '\\':
 		case '`':
 			bNextIsSeparatedLeft = TRUE;
@@ -1841,7 +1854,7 @@ static MARKUP * __stdcall Markup(IN LPSTR lpSrc, IN size_t nSrcLength, OUT size_
 			APPEND_READ_WRITE:
 				APPEND_TAG_WITH_CONTINUE(iTag, nLength, PRIORITY_READ_WRITE, OS_PUSH | OS_CLOSE);
 			}
-			APPEND_TAG_WITH_CONTINUE(TAG_TERNARY_SPLIT, 1, PRIORITY_TERNARY, OS_PUSH | OS_TERNARY);
+			APPEND_TAG_WITH_CONTINUE(TAG_TERNARY_SPLIT, 1, PRIORITY_TERNARY, OS_PUSH);
 		case ';':
 			// ";"
 			bNextIsSeparatedLeft = TRUE;
@@ -2508,7 +2521,6 @@ static MARKUP * __stdcall Markup(IN LPSTR lpSrc, IN size_t nSrcLength, OUT size_
 			break;
 		case 'g':
 			// "gt", "ge"
-			// not implemented: "goto"
 			if (!bIsSeparatedLeft)
 				break;
 			switch (p[1])
@@ -2523,15 +2535,15 @@ static MARKUP * __stdcall Markup(IN LPSTR lpSrc, IN size_t nSrcLength, OUT size_
 				nLength = 2;
 				bPriority = PRIORITY_GE;
 				goto APPEND_WORD_OPERATOR;
-#if IMPLEMENTED
 			case 'o':
 				if (*(uint16_t *)(p + 2) != BSWAP16('to'))
 					break;
+#if 0
 				if (p[4] != '(' && !__intrinsic_isspace(p[4]))
 					break;
-				bNextIsSeparatedLeft = TRUE;
-				APPEND_TAG_WITH_CONTINUE(TAG_GOTO, 4, PRIORITY_GOTO, OS_PUSH | OS_HAS_EXPR);
 #endif
+				bNextIsSeparatedLeft = TRUE;
+				APPEND_TAG_WITH_CONTINUE(TAG_GOTO, 4, PRIORITY_GOTO, OS_PUSH);
 			}
 			break;
 		case 'i':
@@ -3519,9 +3531,11 @@ static MARKUP * __stdcall Markup(IN LPSTR lpSrc, IN size_t nSrcLength, OUT size_
 			bNextIsSeparatedLeft = TRUE;
 			APPEND_TAG_WITH_CONTINUE(iTag, nLength, bPriority, OS_PUSH);
 		case 't':
-			// "toascii", "tolower", "toupper", "trunc"
+			// "tick", "toascii", "tolower", "toupper", "trunc"
 			if (!bIsSeparatedLeft)
 				break;
+			if (*(LPDWORD)p == BSWAP32('tick'))
+				APPEND_FUNCTION_MULTI_PARAM(TAG_TICK, 4);
 			switch (*(uint32_t *)(p + 1))
 			{
 			case BSWAP32('oasc'):
@@ -3942,10 +3956,10 @@ static MARKUP * __stdcall Markup(IN LPSTR lpSrc, IN size_t nSrcLength, OUT size_
 						bNextIsSeparatedLeft = TRUE;
 						bCorrectTag = TRUE;
 						lpMarkup->Tag             = TAG_PLUGIN;
-						lpMarkup->Length          = Function->NameLength;
-						lpMarkup->String          = p;
-						lpMarkup->Priority        = PRIORITY_FUNCTION;
 						lpMarkup->Type            = OS_PUSH;
+						lpMarkup->String          = p;
+						lpMarkup->Length          = (WORD)Function->NameLength;
+						lpMarkup->Priority        = PRIORITY_FUNCTION;
 						lpMarkup->Depth           = 0;
 						lpMarkup->Param           = NULL;
 						lpMarkup->Next            = NULL;
@@ -4024,6 +4038,7 @@ static MARKUP * __stdcall Markup(IN LPSTR lpSrc, IN size_t nSrcLength, OUT size_
 					continue;
 				}
 				nDepth = 0;
+				lpElement->Type |= OS_TERNARY;
 				while (++lpElement < lpEndOfTag)
 				{
 					if (!(lpElement->Type & (OS_OPEN | OS_CLOSE)))
@@ -4135,10 +4150,10 @@ static MARKUP * __stdcall Markup(IN LPSTR lpSrc, IN size_t nSrcLength, OUT size_
 			size_t prefixLength;
 
 			lpMarkup->Tag        = TAG_NOT_OPERATOR;
-			lpMarkup->Length     = length;
-			lpMarkup->String     = p;
-			lpMarkup->Priority   = PRIORITY_NOT_OPERATOR;
 			lpMarkup->Type       = OS_PUSH;
+			lpMarkup->String     = p;
+			lpMarkup->Length     = (WORD)length;
+			lpMarkup->Priority   = PRIORITY_NOT_OPERATOR;
 			lpMarkup->Depth      = lpTag != lpTagArray ? lpTag[-1].Depth + (lpTag[-1].Tag == TAG_IF_EXPR || lpTag[-1].Tag == TAG_ELSE) : 0;
 			lpMarkup->Param      = NULL;
 			lpMarkup->Next       = NULL;
@@ -4237,6 +4252,19 @@ static MARKUP * __stdcall Markup(IN LPSTR lpSrc, IN size_t nSrcLength, OUT size_
 					lpMarkup->Length = end - lpMarkup->String;
 					lpTag++;
 				}
+				else if (lpTag->Tag == TAG_TERNARY_SPLIT && !(lpTag->Type & OS_TERNARY))
+				{
+					lpTag->Tag = TAG_PARSE_ERROR;
+					lpTag->Type = OS_MONADIC | OS_POST;
+					lpTag->Priority = PRIORITY_LABEL;
+					lpMarkup->Tag = TAG_LABEL;
+				}
+				else if (lpMarkup > lpMarkupArray && lpMarkup[-1].Tag == TAG_GOTO)
+				{
+					lpMarkup[-1].Tag = TAG_PARSE_ERROR;
+					lpMarkup[-1].Type = OS_MONADIC;
+					lpMarkup->Tag = TAG_GOTO;
+				}
 
 				#undef TAG_SUB_LENGTH
 				#undef TAG_AT_LENGTH
@@ -4249,7 +4277,7 @@ static MARKUP * __stdcall Markup(IN LPSTR lpSrc, IN size_t nSrcLength, OUT size_
 				// correct double quoted string
 				if (lpMarkup == lpMarkupArray)
 					goto INC_MARKUP;
-				if (lpMarkup[-1].Tag > TAG_PROCESSID || lpMarkup[-1].Tag < TAG_MNAME)
+				if (lpMarkup[-1].Tag > TAG_MNAME || lpMarkup[-1].Tag < TAG_PROCEDURE)
 				{
 					lpMarkup->Type = OS_PUSH | OS_STRING;
 					goto INC_MARKUP;
@@ -4439,6 +4467,7 @@ static MARKUP * __stdcall Markup(IN LPSTR lpSrc, IN size_t nSrcLength, OUT size_
 					(lpMarkup->Close = lpClose)->Type |= OS_PUSH;
 				}
 				continue;
+			case TAG_TICK:            // tick
 			case TAG_RAND32:          // rand32
 			case TAG_RAND64:          // rand64
 #if USE_PLUGIN
@@ -6237,6 +6266,24 @@ uint64_t __cdecl InternalParsing(TSSGCtrl *this, TSSGSubject *SSGS, const string
 				lpMarkup->Jump = lpPostfix;
 			}
 			break;
+		case TAG_GOTO:
+			OPERAND_CLEAR();
+			if (lpMarkup->Jump)
+				lpPostfix = lpMarkup->Jump;
+			else
+			{
+				for (lpPostfix = lpPostfixBuffer; lpPostfix < lpEndOfPostfix; lpPostfix++)
+					if ((*lpPostfix)->Tag == TAG_LABEL &&
+						(*lpPostfix)->Length == lpMarkup->Length &&
+						!memcmp((*lpPostfix)->String, lpMarkup->String, lpMarkup->Length))
+						break;
+				if (lpPostfix < lpEndOfPostfix)
+					lpMarkup->Jump = lpPostfix;
+				else
+					goto PARSING_ERROR;
+			}
+			break;
+		case TAG_LABEL:
 		case TAG_PARAM_LOCAL:
 		case TAG_IMPORT_FUNCTION:
 		case TAG_IMPORT_REFERENCE:
@@ -8698,6 +8745,14 @@ uint64_t __cdecl InternalParsing(TSSGCtrl *this, TSSGSubject *SSGS, const string
 
 				#undef buffer
 			}
+			break;
+		case TAG_TICK:
+			if ((lpOperandTop = lpEndOfOperand - lpMarkup->NumberOfOperand) < lpOperandBuffer)
+				goto PARSING_ERROR;
+			lpEndOfOperand = lpOperandTop + 1;
+			lpOperandTop->Quad = GetTickCount();
+			if (lpOperandTop->IsQuad = !IsInteger)
+				lpOperandTop->Real = (double)lpOperandTop->Quad;
 			break;
 		case TAG_RAND32:
 			if ((lpOperandTop = lpEndOfOperand - lpMarkup->NumberOfOperand) < lpOperandBuffer)
@@ -12185,6 +12240,7 @@ uint64_t __cdecl InternalParsing(TSSGCtrl *this, TSSGSubject *SSGS, const string
 				end = (p = lpMarkup->String) + (length = lpMarkup->Length);
 				element = NULL;
 				endptr = NULL;
+				lpNext = lpPostfix + 1 < lpEndOfPostfix ? lpPostfix[1] : NULL;
 #pragma region Null_terminated
 				c = *end;
 				*end = '\0';
@@ -12201,6 +12257,8 @@ uint64_t __cdecl InternalParsing(TSSGCtrl *this, TSSGSubject *SSGS, const string
 					{
 						if (!IsStringOperand(lpMarkup))
 						{
+							if (lpNext && lpNext->Tag <= TAG_MNAME && lpNext->Tag >= TAG_MODULENAME)
+								break;
 							if (*p == '$')
 							{
 								p++;
@@ -12261,7 +12319,6 @@ uint64_t __cdecl InternalParsing(TSSGCtrl *this, TSSGSubject *SSGS, const string
 						break;
 					}
 				} while (0);
-				lpNext = lpPostfix + 1 < lpEndOfPostfix ? lpPostfix[1] : NULL;
 				if (!element && length && (
 #if SCOPE_SUPPORT
 					p[0] == SCOPE_PREFIX ||
@@ -12918,24 +12975,6 @@ double __cdecl ParsingDouble(IN TSSGCtrl *this, IN TSSGSubject *SSGS, IN const s
 #undef TProcessCtrl_GetModuleFromName
 #undef TProcessCtrl_GetHeapList
 #endif
-
-#undef OS_PUSH
-#undef OS_OPEN
-#undef OS_CLOSE
-#undef OS_SPLIT
-#undef OS_DELIMITER
-#undef OS_MONADIC
-#undef OS_POST
-#undef OS_SHORT_CIRCUIT
-#undef OS_LEFT_ASSIGN
-#undef OS_PARENTHESIS
-#undef OS_HAS_EXPR
-#undef OS_TERNARY
-#undef OS_TERNARY_END
-#undef OS_LOOP_BEGIN
-#undef OS_LOOP_END
-#undef OS_RET_OPERAND
-#undef OS_STRING
 
 #undef AllocMarkup
 
