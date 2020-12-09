@@ -721,7 +721,7 @@ typedef enum {
 	TAG_TERNARY_SPLIT    ,  //  12 :               OS_PUSH | OS_TERNARY
 	TAG_RIGHT_ASSIGN     ,  //   8 =>              OS_PUSH
 	TAG_LEFT_ASSIGN      ,  //   8 =               OS_PUSH | OS_LEFT_ASSIGN
-	TAG_DELIMITER        ,  //   4 ,               OS_DELIMITER
+	TAG_DELIMITER        ,  //   4 ,               OS_PUSH | OS_DELIMITER
 	TAG_REMOTE1          ,  //   4 :1]             OS_PUSH | OS_CLOSE
 	TAG_REMOTE2          ,  //   4 :2]             OS_PUSH | OS_CLOSE
 	TAG_REMOTE3          ,  //   4 :3]             OS_PUSH | OS_CLOSE
@@ -1114,7 +1114,7 @@ typedef enum {
 	PRIORITY_TERNARY           =  12,   // ? :             OS_PUSH | OS_TERNARY
 	PRIORITY_RIGHT_ASSIGN      =   8,   // =>              OS_PUSH
 	PRIORITY_LEFT_ASSIGN       =   8,   // =               OS_PUSH | OS_LEFT_ASSIGN
-	PRIORITY_DELIMITER         =   4,   // ,               OS_DELIMITER
+	PRIORITY_DELIMITER         =   4,   // ,               OS_PUSH | OS_DELIMITER
 	PRIORITY_READ_WRITE        =   4,   // :]  :1] :2] :3] OS_PUSH | OS_CLOSE
 	                                    // :4] :5] :6] :7]
 	                                    // :8]
@@ -1407,6 +1407,7 @@ BOOL __fastcall CorrectFunction(MARKUP *lpMarkup, MARKUP *lpEndOfMarkup, size_t 
 
 				lpList = lpList->Next = lpMarkup;
 			LOOP_ENTRY:
+				lpMarkup->Type &= ~OS_PUSH;
 				lpParam = lpMarkup;
 				do
 					if (++lpParam >= lpEndOfMarkup)
@@ -1645,7 +1646,7 @@ static MARKUP * __stdcall Markup(IN LPSTR lpSrc, IN size_t nSrcLength, OUT size_
 		case ',':
 			// ","
 			bNextIsSeparatedLeft = TRUE;
-			APPEND_TAG_WITH_CONTINUE(TAG_DELIMITER, 1, PRIORITY_DELIMITER, OS_DELIMITER);
+			APPEND_TAG_WITH_CONTINUE(TAG_DELIMITER, 1, PRIORITY_DELIMITER, OS_PUSH | OS_DELIMITER);
 		case '-':
 			// "-", "--", "-="
 			bNextIsSeparatedLeft = TRUE;
@@ -4162,8 +4163,6 @@ static MARKUP * __stdcall Markup(IN LPSTR lpSrc, IN size_t nSrcLength, OUT size_
 				lpMarkup->String[prefixLength = 1] != '"' && (lpMarkup->String[1] != '8' ||
 				lpMarkup->String[prefixLength = 2] != '"')))
 			{
-				#define TAG_SUB_LENGTH     1
-				#define TAG_AT_LENGTH      1
 				#define TAG_ADD_SUB_LENGTH 1
 
 				char *p, *end, *next;
@@ -4180,19 +4179,22 @@ static MARKUP * __stdcall Markup(IN LPSTR lpSrc, IN size_t nSrcLength, OUT size_
 				}
 				else
 #endif
-				if (lpTag + 2 < lpEndOfTag &&
+				if (lpTag + 3 < lpEndOfTag &&
 					lpTag[0].Tag == TAG_SUB && !(lpTag[0].Type & OS_LEFT_ASSIGN) &&
+					lpTag[0].String == lpMarkup->String + lpMarkup->Length &&
 					lpTag[1].Tag == TAG_AT &&
-					lpTag[1].String == lpTag[0].String + TAG_SUB_LENGTH &&
-					lpTag[2].Tag == TAG_PARENTHESIS_OPEN &&
-					(end = TrimRightSpace(lpTag[1].String + TAG_AT_LENGTH, lpTag[2].String)) >= lpTag[1].String + TAG_AT_LENGTH)
+					lpTag[1].String == lpTag[0].String + lpTag[0].Length &&
+					(lpTag[2].Tag == TAG_PARENTHESIS_OPEN ||
+					 lpTag[2].String == lpTag[1].String + lpTag[1].Length) &&
+					(end = TrimRightSpace(lpTag[1].String + lpTag[1].Length,
+										  lpTag[2 + (lpTag[2].Tag != TAG_PARENTHESIS_OPEN)].String)) >= lpTag[1].String + lpTag[1].Length)
 				{
 					// function
 					lpMarkup->Tag      = TAG_FUNCTION;
 					lpMarkup->Length   = end - lpMarkup->String;
 					lpMarkup->Priority = PRIORITY_FUNCTION;
 					lpMarkup->Type     = OS_PUSH | OS_MONADIC;
-					lpTag += 2;
+					lpTag += 2 + (lpTag[2].Tag != TAG_PARENTHESIS_OPEN);
 					bCorrectTag = TRUE;
 				}
 				else if ((lpTag[0].Tag == TAG_ADD || lpTag[0].Tag == TAG_SUB) &&
@@ -4266,8 +4268,6 @@ static MARKUP * __stdcall Markup(IN LPSTR lpSrc, IN size_t nSrcLength, OUT size_
 					lpMarkup->Tag = TAG_GOTO;
 				}
 
-				#undef TAG_SUB_LENGTH
-				#undef TAG_AT_LENGTH
 				#undef TAG_ADD_SUB_LENGTH
 			}
 			else
@@ -5430,10 +5430,7 @@ static MARKUP ** __stdcall Postfix(IN MARKUP *lpMarkupArray, IN size_t nNumberOf
 					lpPrev = lpMarkup;
 					nDepth = 0;
 					while (--lpPrev != lpMarkupArray)
-						if (!nDepth && lpPrev->Priority < lpMarkup->Priority) {
-							lpPrev++;
-							break;
-						} else
+					{
 						if (lpPrev->Type & (OS_OPEN | OS_CLOSE | OS_SPLIT | OS_DELIMITER | OS_TERNARY))
 							if (lpPrev->Type & OS_CLOSE)
 								nDepth++;
@@ -5441,6 +5438,9 @@ static MARKUP ** __stdcall Postfix(IN MARKUP *lpMarkupArray, IN size_t nNumberOf
 								break;
 							else if (lpPrev->Type & OS_OPEN)
 								nDepth--;
+						if (!nDepth && lpPrev[-1].Priority < lpMarkup->Priority)
+							break;
+					}
 					while (!FACTOR_IS_EMPTY() && (*lpFactorTop)->String >= lpPrev->String)
 					{
 						POSTFIX_PUSH(FACTOR_POP());
@@ -5449,10 +5449,8 @@ static MARKUP ** __stdcall Postfix(IN MARKUP *lpMarkupArray, IN size_t nNumberOf
 						(*lpnNestTop)--;
 					}
 				}
-				/*
 				if (lpMarkup->Type & OS_PUSH)
 					POSTFIX_PUSH(lpMarkup);
-				*/
 			}
 			continue;
 		}
@@ -6283,6 +6281,8 @@ uint64_t __cdecl InternalParsing(TSSGCtrl *this, TSSGSubject *SSGS, const string
 					goto PARSING_ERROR;
 			}
 			break;
+		case TAG_DELIMITER:
+			OPERAND_POP();
 		case TAG_LABEL:
 		case TAG_PARAM_LOCAL:
 		case TAG_IMPORT_FUNCTION:
