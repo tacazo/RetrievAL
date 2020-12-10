@@ -393,11 +393,10 @@ typedef enum {
 	TAG_CO_AWAIT         ,  // 127 co_await        OS_PUSH
 	TAG_CO_YIELD         ,  // 127 co_yield        OS_PUSH
 	TAG_CO_RETURN        ,  // 127 co_return       OS_PUSH
+#endif
 	TAG_SWITCH           ,  // 127 switch          OS_PUSH | OS_HAS_EXPR
 	TAG_CASE             ,  // 127 case            OS_PUSH
 	TAG_DEFAULT          ,  // 127 default         OS_PUSH
-#endif
-	TAG_GOTO             ,  // 127 goto            OS_PUSH
 	TAG_LABEL            ,  // 127 :               OS_PUSH
 	TAG_PARENTHESIS_OPEN ,  //  64 (               OS_OPEN | OS_PARENTHESIS
 	TAG_ADDR_ADJUST_OPEN ,  //  64 [_              OS_OPEN
@@ -770,12 +769,14 @@ typedef enum {
 	TAG_ADDR_REPLACE     ,  //   4 .]              OS_PUSH | OS_CLOSE
 	TAG_ADDR_ADJUST      ,  //   4 _]              OS_PUSH | OS_CLOSE
 	TAG_IF_EXPR          ,  //   4 )               OS_PUSH | OS_CLOSE | OS_SPLIT | OS_PARENTHESIS
+	TAG_SWITCH_EXPR      ,  //   4 )               OS_PUSH | OS_CLOSE | OS_SPLIT | OS_PARENTHESIS
 	TAG_WHILE_EXPR       ,  //   4 )               OS_PUSH | OS_CLOSE | OS_SPLIT | OS_PARENTHESIS
 	TAG_FOR_INITIALIZE   ,  //   4 ;               OS_PUSH | OS_SPLIT
 	TAG_FOR_CONDITION    ,  //   4 ;               OS_PUSH | OS_SPLIT | OS_LOOP_BEGIN
 	TAG_FOR_UPDATE       ,  //   4 )               OS_PUSH | OS_CLOSE | OS_SPLIT | OS_PARENTHESIS
 	TAG_PARENTHESIS_CLOSE,  //   4 )               OS_CLOSE | OS_PARENTHESIS
 	TAG_SPLIT            ,  //   4 ;               OS_SPLIT
+	TAG_GOTO             ,  //   0 goto            OS_PUSH
 	TAG_RETURN           ,  //   0 return          OS_PUSH
 	TAG_PARSE_ERROR      ,
 } TAG;
@@ -794,11 +795,10 @@ typedef enum {
 	PRIORITY_CO_AWAIT          = 127,   // co_await        OS_PUSH
 	PRIORITY_CO_YIELD          = 127,   // co_yield        OS_PUSH
 	PRIORITY_CO_RETURN         = 127,   // co_return       OS_PUSH
+#endif
 	PRIORITY_SWITCH            = 127,   // switch          OS_PUSH | OS_HAS_EXPR
 	PRIORITY_CASE              = 127,   // case            OS_PUSH
 	PRIORITY_DEFAULT           = 127,   // default         OS_PUSH
-#endif
-	PRIORITY_GOTO              = 127,   // goto            OS_PUSH
 	PRIORITY_LABEL             = 127,   // :               OS_PUSH
 	PRIORITY_PARENTHESIS_OPEN  =  64,   // (               OS_OPEN | OS_PARENTHESIS
 	PRIORITY_ADDR_ADJUST_OPEN  =  64,   // [_              OS_OPEN
@@ -1141,6 +1141,7 @@ typedef enum {
 	PRIORITY_ADDR_ADJUST       =   4,   // _]              OS_PUSH | OS_CLOSE
 	PRIORITY_PARENTHESIS_CLOSE =   4,   // )               OS_CLOSE | OS_PARENTHESIS
 	PRIORITY_SPLIT             =   4,   // ;               OS_SPLIT
+	PRIORITY_GOTO              =   0,   // goto            OS_PUSH
 	PRIORITY_RETURN            =   0,   // return          OS_PUSH
 } PRIORITY;
 
@@ -1433,7 +1434,7 @@ static MARKUP * __stdcall Markup(IN LPSTR lpSrc, IN size_t nSrcLength, OUT size_
 	BOOLEAN bIsSeparatedLeft, bNextIsSeparatedLeft;
 	LPBYTE  p, end;
 	MARKUP  *lpMarkupArray;
-	MARKUP  *lpMarkup, *lpEndOfMarkup;
+	MARKUP  *lpMarkup, *lpEndOfMarkup, *lpFirstSwitch;
 	size_t  nFirstTernary;
 	BOOL    bCorrectTag;
 	LPVOID  lpMem;
@@ -1452,6 +1453,7 @@ static MARKUP * __stdcall Markup(IN LPSTR lpSrc, IN size_t nSrcLength, OUT size_
 		return NULL;
 
 	nNumberOfTag = 0;
+	lpFirstSwitch = NULL;
 	nFirstTernary = -1;
 	bCorrectTag = FALSE;
 	bIsSeparatedLeft = TRUE;
@@ -1469,7 +1471,7 @@ static MARKUP * __stdcall Markup(IN LPSTR lpSrc, IN size_t nSrcLength, OUT size_
 		    lpMarkup->Tag        = tag;                                                         \
 		    lpMarkup->Type       = type;                                                        \
 		    lpMarkup->String     = p;                                                           \
-		    lpMarkup->Length     = (WORD)length;                                                \
+		    lpMarkup->Length     = (WORD)(length);                                                \
 		    lpMarkup->Priority   = priority;                                                    \
 		    lpMarkup->Depth      = 0;                                                           \
 		    lpMarkup->Param      = NULL;                                                        \
@@ -2236,6 +2238,7 @@ static MARKUP * __stdcall Markup(IN LPSTR lpSrc, IN size_t nSrcLength, OUT size_
 				case TAG_STRTOK:
 				case TAG_WCSTOK:
 				case TAG_MBSTOK:
+				case TAG_SWITCH:
 					bNextIsSeparatedLeft = TRUE;
 					APPEND_TAG_WITH_CONTINUE(TAG_PARAM_LOCAL, 1, PRIORITY_PARAM_LOCAL, OS_PUSH);
 				}
@@ -2369,24 +2372,22 @@ static MARKUP * __stdcall Markup(IN LPSTR lpSrc, IN size_t nSrcLength, OUT size_
 			break;
 		case 'c':
 			// "cbd", "cwd", "cdq"
-			// "continue"
-			// not implemented: "case", "co_await", "co_return", "co_yield"
+			// "case", "continue"
+			// not implemented: "co_await", "co_return", "co_yield"
 			if (!bIsSeparatedLeft)
 				break;
 			switch (p[1])
 			{
-#if IMPLEMENTED
 			case 'a':
 				switch (*(uint16_t *)(p + 2))
 				{
 				case BSWAP16('se'):
-					if (p[4] != ':' && !__intrinsic_isspace(p[4]))
+					if (!__intrinsic_isspace(p[4]))
 						break;
 					bNextIsSeparatedLeft = TRUE;
 					APPEND_TAG_WITH_CONTINUE(TAG_CASE, 4, PRIORITY_CASE, OS_PUSH);
 				}
 				break;
-#endif
 			case 'b':
 				if (p[2] != 'd')
 					break;
@@ -2446,23 +2447,24 @@ static MARKUP * __stdcall Markup(IN LPSTR lpSrc, IN size_t nSrcLength, OUT size_
 			}
 			break;
 		case 'd':
+			// "default"
 			// "do", "dprintf"
-			// not implemented: "default"
 			if (!bIsSeparatedLeft)
 				break;
 			switch (p[1])
 			{
-#if IMPLEMENTED
+				LPCBYTE s;
 			case 'e':
 				if (*(uint32_t *)(p + 2) != BSWAP32('faul'))
 					break;
 				if (p[6] != 't')
 					break;
-				if (p[7] != ':' && !__intrinsic_isspace(p[7]))
+				s = p + 7;
+				for (BYTE c; (c = *s, __intrinsic_isspace(c)); s++);
+				if (*s++ != ':')
 					break;
 				bNextIsSeparatedLeft = TRUE;
-				APPEND_TAG_WITH_CONTINUE(TAG_DEFAULT, 7, PRIORITY_DEFAULT, OS_PUSH);
-#endif
+				APPEND_TAG_WITH_CONTINUE(TAG_DEFAULT, s - p, PRIORITY_DEFAULT, OS_PUSH);
 			case 'o':
 				if (p[2] != '(' && !__intrinsic_isspace(p[2]))
 					break;
@@ -2522,6 +2524,7 @@ static MARKUP * __stdcall Markup(IN LPSTR lpSrc, IN size_t nSrcLength, OUT size_
 			break;
 		case 'g':
 			// "gt", "ge"
+			// "goto"
 			if (!bIsSeparatedLeft)
 				break;
 			switch (p[1])
@@ -2539,10 +2542,8 @@ static MARKUP * __stdcall Markup(IN LPSTR lpSrc, IN size_t nSrcLength, OUT size_
 			case 'o':
 				if (*(uint16_t *)(p + 2) != BSWAP16('to'))
 					break;
-#if 0
-				if (p[4] != '(' && !__intrinsic_isspace(p[4]))
+				if (!__intrinsic_isspace(p[4]))
 					break;
-#endif
 				bNextIsSeparatedLeft = TRUE;
 				APPEND_TAG_WITH_CONTINUE(TAG_GOTO, 4, PRIORITY_GOTO, OS_PUSH);
 			}
@@ -3311,9 +3312,9 @@ static MARKUP * __stdcall Markup(IN LPSTR lpSrc, IN size_t nSrcLength, OUT size_
 			}
 			break;
 		case 's':
-			// "sleep"
-			// "sar", "snprintf", "snwprintf", "stpcpy", "stpncpy", "strcat", "strcnt", "strchr", "strcmp", "strcpy", "strcspn", "strdec", "strdup", "strichr", "stricmp", "strinc", "stristr", "strlcat", "strlcpy", "strlen", "strlwr", "strncat", "strncmp", "strncpy", "strnextc", "strninc, "strnicmp", "strnlen", "strnset", "strpbrk", "strrchr", "strrev", "strrichr", "strristr", "strrstr", "strset", "strspn", "strspnp", "strstr", "strtok", "strupr"
-			// not implemented: "switch"
+			// "sar"
+			// "sleep", "snprintf", "snwprintf", "stpcpy", "stpncpy", "strcat", "strcnt", "strchr", "strcmp", "strcpy", "strcspn", "strdec", "strdup", "strichr", "stricmp", "strinc", "stristr", "strlcat", "strlcpy", "strlen", "strlwr", "strncat", "strncmp", "strncpy", "strnextc", "strninc, "strnicmp", "strnlen", "strnset", "strpbrk", "strrchr", "strrev", "strrichr", "strristr", "strrstr", "strset", "strspn", "strspnp", "strstr", "strtok", "strupr"
+			// "switch"
 			if (!bIsSeparatedLeft)
 				break;
 			switch (p[1])
@@ -3515,15 +3516,14 @@ static MARKUP * __stdcall Markup(IN LPSTR lpSrc, IN size_t nSrcLength, OUT size_
 					break;
 				}
 				break;
-#if IMPLEMENTED
 			case 'w':
 				if (*(uint32_t *)(p + 2) != BSWAP32('itch'))
 					break;
 				if (p[6] != '(' && !__intrinsic_isspace(p[6]))
 					break;
 				bNextIsSeparatedLeft = TRUE;
-				APPEND_TAG_WITH_CONTINUE(TAG_SWITCH, 6, PRIORITY_SWITCH, OS_PUSH);
-#endif
+				bCorrectTag = TRUE;
+				APPEND_TAG_WITH_CONTINUE(TAG_SWITCH, 6, PRIORITY_SWITCH, OS_PUSH | OS_HAS_EXPR);
 			}
 			break;
 		APPEND_WORD_OPERATOR:
@@ -4155,7 +4155,7 @@ static MARKUP * __stdcall Markup(IN LPSTR lpSrc, IN size_t nSrcLength, OUT size_
 			lpMarkup->String     = p;
 			lpMarkup->Length     = (WORD)length;
 			lpMarkup->Priority   = PRIORITY_NOT_OPERATOR;
-			lpMarkup->Depth      = lpTag != lpTagArray ? lpTag[-1].Depth + (lpTag[-1].Tag == TAG_IF_EXPR || lpTag[-1].Tag == TAG_ELSE) : 0;
+			lpMarkup->Depth      = lpTag >= lpEndOfTag && lpTag != lpTagArray && (lpTag[-1].Tag == TAG_IF_EXPR || lpTag[-1].Tag == TAG_ELSE);
 			lpMarkup->Param      = NULL;
 			lpMarkup->Next       = NULL;
 		    lpMarkup->UnionBlock = 0;
@@ -4256,16 +4256,25 @@ static MARKUP * __stdcall Markup(IN LPSTR lpSrc, IN size_t nSrcLength, OUT size_
 				}
 				else if (lpTag->Tag == TAG_TERNARY_SPLIT && !(lpTag->Type & OS_TERNARY))
 				{
-					lpTag->Tag = TAG_PARSE_ERROR;
+					if (lpMarkup - 2 >= lpMarkupArray && lpMarkup[-1 - (lpMarkup[-1].Tag == TAG_SUB)].Tag == TAG_CASE)
+					{
+						next = (p = lpMarkup->String) + lpMarkup->Length;
+						if ((--lpMarkup)->Tag == TAG_SUB)
+						{
+							p = lpMarkup->String;
+							lpMarkup--;
+						}
+						lpMarkup->NumberOfOperand = strtoul(p, &end, 0);
+						lpMarkup->Length = lpTag->String - lpMarkup->String + lpTag->Length;
+					//	if (end < next) lpMarkup->Tag = TAG_PARSE_ERROR;
+					}
+					else
+					{
+						lpMarkup->Tag      = TAG_LABEL;
+						lpMarkup->Priority = PRIORITY_LABEL;
+					}
+					lpTag->Tag  = TAG_PARSE_ERROR;
 					lpTag->Type = OS_MONADIC | OS_POST;
-					lpTag->Priority = PRIORITY_LABEL;
-					lpMarkup->Tag = TAG_LABEL;
-				}
-				else if (lpMarkup > lpMarkupArray && lpMarkup[-1].Tag == TAG_GOTO)
-				{
-					lpMarkup[-1].Tag = TAG_PARSE_ERROR;
-					lpMarkup[-1].Type = OS_MONADIC;
-					lpMarkup->Tag = TAG_GOTO;
 				}
 
 				#undef TAG_ADD_SUB_LENGTH
@@ -4277,9 +4286,33 @@ static MARKUP * __stdcall Markup(IN LPSTR lpSrc, IN size_t nSrcLength, OUT size_
 				// correct double quoted string
 				if (lpMarkup == lpMarkupArray)
 					goto INC_MARKUP;
-				if (lpMarkup[-1].Tag > TAG_MNAME || lpMarkup[-1].Tag < TAG_PROCEDURE)
+				switch (lpMarkup[-1].Tag)
 				{
-					lpMarkup->Type = OS_PUSH | OS_STRING;
+				case TAG_PROCEDURE:
+				case TAG_IMPORT_FUNCTION:
+				case TAG_IMPORT_REFERENCE:
+				case TAG_MODULENAME:
+				case TAG_SECTION:
+				case TAG_PROCESSID:
+				case TAG_MNAME:
+					break;
+				case TAG_CASE:
+					p = (lpMarkup--)->String;
+					if (lpTag->Tag == TAG_TERNARY_SPLIT && !(lpTag->Type & OS_TERNARY))
+					{
+						lpMarkup->String = p;
+						lpMarkup->Length = (WORD)length;
+						lpTag->Tag  = TAG_PARSE_ERROR;
+						lpTag->Type = OS_MONADIC | OS_POST;
+					}
+					else
+					{
+						lpMarkup->Tag = TAG_PARSE_ERROR;
+						lpTag->Tag    = TAG_PARSE_ERROR;
+						goto INC_MARKUP;
+					}
+				default:
+					lpMarkup->Type |= OS_STRING;
 					goto INC_MARKUP;
 				}
 				end = (p = lpMarkup->String) + lpMarkup->Length;
@@ -4372,6 +4405,34 @@ static MARKUP * __stdcall Markup(IN LPSTR lpSrc, IN size_t nSrcLength, OUT size_
 					lpEnd->Type |= OS_SPLIT;
 					for (MARKUP *lpElement = lpBegin; lpElement < lpEnd; lpElement++)
 						lpElement->Depth++;
+				}
+				continue;
+			case TAG_SWITCH:
+				// correct switch block
+				{
+					MARKUP *lpOpen, *lpClose, *lpBegin, *lpEnd;
+
+					if ((lpOpen = lpMarkup + 1) >= lpEndOfMarkup)
+						break;
+					if (lpOpen->Tag != TAG_PARENTHESIS_OPEN)
+						break;
+					if ((lpClose = FindParenthesisClose(lpOpen + 1, lpEndOfMarkup)) + 1 >= lpEndOfMarkup)
+						break;
+					if ((lpBegin = lpClose + 1) + 1 >= lpEndOfMarkup || lpBegin->Tag != TAG_PARENTHESIS_OPEN)
+						break;
+					if ((lpEnd = FindParenthesisClose(lpBegin + 1, lpEndOfMarkup)) >= lpEndOfMarkup)
+						break;
+					lpClose->Tag = TAG_SWITCH_EXPR;
+					lpClose->Type |= OS_PUSH | OS_SPLIT;
+					lpClose->Param = lpOpen + 1;
+					lpClose->Close = lpMarkup;
+					lpEnd->Type |= OS_PUSH | OS_SPLIT;
+					for (MARKUP *lpElement = lpBegin; lpElement < lpEnd; lpElement++)
+						lpElement->Depth++;
+					lpMarkup->Param = lpClose;
+					lpMarkup->Next  = lpEnd;
+					if (!lpFirstSwitch)
+						lpFirstSwitch = lpMarkup;
 				}
 				continue;
 			case TAG_DO:
@@ -4883,6 +4944,48 @@ static MARKUP * __stdcall Markup(IN LPSTR lpSrc, IN size_t nSrcLength, OUT size_
 		}
 	}
 
+	// recorrect switch block
+	if (lpFirstSwitch) for (lpMarkup = lpFirstSwitch; lpMarkup < lpEndOfMarkup; lpMarkup++) if (lpMarkup->Tag == TAG_SWITCH)
+	{
+		MARKUP *lpLink = lpMarkup->Param;
+		for (MARKUP *lpCode = lpMarkup->Param + 2; lpCode < lpMarkup->Next; lpCode++) switch (lpCode->Tag)
+		{
+		case TAG_SWITCH:
+			lpCode = lpCode->Next;
+			continue;
+		case TAG_BREAK:
+			if (lpCode->LoopDepth != lpMarkup->LoopDepth)
+				continue;
+			lpCode->Next = lpMarkup->Next;
+			break;
+		case TAG_CASE:
+			if (lpCode->Depth == lpMarkup->Depth + 1)
+			{
+				if (lpLink->Tag != TAG_DEFAULT)
+				{
+					lpLink->Next = lpCode;
+					lpLink = lpCode;
+				}
+				else
+				{
+					lpCode->Next = lpLink;
+					lpLink->Param->Next = lpCode;
+					lpLink->Param = lpCode;
+				}
+			}
+			break;
+		case TAG_DEFAULT:
+			if (lpCode->Depth == lpMarkup->Depth + 1)
+			{
+				lpCode->Param = lpLink;
+				lpLink->Next = lpCode;
+				lpLink = lpCode;
+			}
+			break;
+		}
+		lpLink->Next = lpMarkup->Next;
+	}
+
 	// return
 	*lpnNumberOfMarkup = lpEndOfMarkup - lpMarkupArray;
 	return lpMarkupArray;
@@ -5092,18 +5195,18 @@ FAILED:
 	return FALSE;
 }
 //---------------------------------------------------------------------
-#define UNICODE_FUNCTION       0x0000001
-#define INSENSITIVE_CASE       0x0000002
-#define REVERSE                0x0000004
-#define NULL_TERMINATED        0x0800000
-#define NUMBER_OF_CHARS        0x1000000
-#define HANDLE_OVERLAP_REGIONS 0x2000000
-#define CONCATENATE            0x4000000
-#define EXTENDED_POINTER       0x8000000
+enum OPT
+{
+	UNICODE_FUNCTION       = 0x0000001,// must be 1
+	INSENSITIVE_CASE       = 0x0000002,
+	REVERSE                = 0x0000004,
+	NULL_TERMINATED        = 0x0800000,
+	NUMBER_OF_CHARS        = 0x1000000,
+	HANDLE_OVERLAP_REGIONS = 0x2000000,
+	CONCATENATE            = 0x4000000,
+	EXTENDED_POINTER       = 0x8000000,
+};
 //---------------------------------------------------------------------
-#if UNICODE_FUNCTION != 1
-	#error "Cannot adjust unicode string."
-#endif
 #define SIZE_OF_CHAR(flags) (((flags) & UNICODE_FUNCTION) + 1)
 #define SIZE_OF_STRING(length, flags) ((length) << ((flags) & UNICODE_FUNCTION))
 #define TERMINATE_STRING(string, length, flags) \
@@ -6055,12 +6158,12 @@ uint64_t __cdecl InternalParsing(TSSGCtrl *this, TSSGSubject *SSGS, const string
 	for (; lpPostfix < lpEndOfPostfix; lpPostfix++)
 	{
 		MARKUP       *lpMarkup;
-		BOOLEAN      boolValue;
+		bool         boolValue;
 		size_t       nDepth;
 		LPVOID       lpAddress;
 		size_t       nSize;
 		MARKUP       *lpNext;
-		unsigned int uFlags;
+		enum OPT     uFlags = 0;
 		FARPROC      lpFunction;
 		HANDLE       *lpStrtokProcess;
 		LPVOID       *lpStrtokContext;
@@ -6083,6 +6186,7 @@ uint64_t __cdecl InternalParsing(TSSGCtrl *this, TSSGSubject *SSGS, const string
 			if (lpMarkup->Length)
 				break;
 			continue;
+		case TAG_SWITCH:
 		case TAG_DO:
 		case TAG_WHILE:
 		case TAG_FOR:
@@ -6117,6 +6221,81 @@ uint64_t __cdecl InternalParsing(TSSGCtrl *this, TSSGSubject *SSGS, const string
 				while (++lpPostfix < lpEndOfPostfix && (*lpPostfix)->Depth > lpMarkup->Depth);
 				lpMarkup->Jump = --lpPostfix;
 			}
+		case TAG_CASE:
+		case TAG_DEFAULT:
+			continue;
+		case TAG_SWITCH_EXPR:
+			lpAddress = (boolValue = OPERAND_IS_EMPTY()) ? 0 : IsInteger ? (LPVOID)lpOperandTop[0].Quad : (LPVOID)(uintptr_t)lpOperandTop[0].Real;
+			OPERAND_CLEAR();
+			{
+				#define lpBuffer lpBuffer1
+
+				int    iResult;
+				HANDLE hSrcProcess = NULL;
+				LPVOID pSrc = NULL;
+				size_t nCount = 0;
+
+				lpBuffer = NULL;
+				lpNext = lpMarkup;
+				lpMarkup = lpNext->Close;// for error
+				mbstok_context = !bCached ? lpConstStringBuffer : lpConstStringRegion;
+
+				if (uFlags = CheckStringOperand(IsStringOperand(lpNext->Param) ? lpNext->Param : lpNext->Next, &nSize)
+					? NULL_TERMINATED | UNICODE_FUNCTION & nSize : 0)
+				{
+					if (IsStringOperand(lpNext->Param) || lpNext->Param->Tag == TAG_PARAM_LOCAL)
+						hSrcProcess = NULL;
+					else if (hProcess || (hProcess = TProcessCtrl_Open(&this->processCtrl, PROCESS_DESIRED_ACCESS)))
+						hSrcProcess = hProcess;
+					else
+						goto OPEN_ERROR;
+
+					if (!(nCount = StringLength(hSrcProcess, pSrc = lpAddress, -1, uFlags) + 1))
+						goto READ_ERROR;
+
+					if (hSrcProcess)
+					{
+						if (!(lpBuffer = HeapAlloc(hHeap, 0, nSize = SIZE_OF_STRING(nCount, uFlags))))
+							goto ALLOC_ERROR;
+						if (!ReadProcessMemory(hSrcProcess, lpAddress, pSrc = lpBuffer, nSize, NULL))
+							goto READ_ERROR_FREE1;
+						hSrcProcess = NULL;
+					}
+				}
+
+				lpMarkup = lpNext->Next;// get case chain
+				while (lpMarkup->Next && (boolValue || lpMarkup->Tag == TAG_CASE && (
+					CheckStringOperand(lpMarkup, &nSize) ?
+					!NT_SUCCESS(CompareProcessMemory(
+						&iResult,
+						pSrc ? hSrcProcess : hProcess ? hProcess : (hProcess = TProcessCtrl_Open(&this->processCtrl, PROCESS_DESIRED_ACCESS)),
+						pSrc ? pSrc : lpAddress,
+						NULL,
+						mbstok_context + lpMarkup->UnescapedString,
+						nCount ? nCount : StringLength(
+							NULL,
+							mbstok_context + lpMarkup->UnescapedString,
+							-1,
+							NULL_TERMINATED | UNICODE_FUNCTION & nSize) + 1,
+						NUMBER_OF_CHARS | NULL_TERMINATED | UNICODE_FUNCTION & nSize)) || iResult :
+				lpMarkup->NumberOfOperand != (size_t)lpAddress)))
+					lpMarkup = lpMarkup->Next;
+
+				if (lpBuffer)
+					HeapFree(hHeap, 0, lpBuffer);
+
+				#undef lpBuffer
+
+				if (lpMarkup->FalsePart)
+					lpPostfix = lpMarkup->FalsePart;
+				else
+				{
+					while (++lpPostfix < lpEndOfPostfix && *lpPostfix != lpMarkup);
+					lpMarkup->FalsePart = lpPostfix;
+				}
+			}
+			if (lpMarkup->Tag != TAG_PARENTHESIS_CLOSE)
+				break;
 			continue;
 		case TAG_WHILE_EXPR:
 			boolValue = OPERAND_IS_EMPTY() || (IsInteger ? !!lpOperandTop->Quad : !!lpOperandTop->Real);
@@ -6237,6 +6416,11 @@ uint64_t __cdecl InternalParsing(TSSGCtrl *this, TSSGSubject *SSGS, const string
 			OPERAND_CLEAR();
 			if (lpMarkup->Jump)
 				lpPostfix = lpMarkup->Jump;
+			else if (lpMarkup->Next)
+			{
+				while (++lpPostfix < lpEndOfPostfix && *lpPostfix != lpMarkup->Next);
+				lpMarkup->Jump = lpPostfix;
+			}
 			else
 			{
 				while (++lpPostfix < lpEndOfPostfix && (*lpPostfix)->LoopDepth >= lpMarkup->LoopDepth);
@@ -6262,23 +6446,6 @@ uint64_t __cdecl InternalParsing(TSSGCtrl *this, TSSGSubject *SSGS, const string
 						while (--lpPostfix > lpPostfixBuffer && (*lpPostfix)->LoopDepth >= lpMarkup->LoopDepth);
 				}
 				lpMarkup->Jump = lpPostfix;
-			}
-			break;
-		case TAG_GOTO:
-			OPERAND_CLEAR();
-			if (lpMarkup->Jump)
-				lpPostfix = lpMarkup->Jump;
-			else
-			{
-				for (lpPostfix = lpPostfixBuffer; lpPostfix < lpEndOfPostfix; lpPostfix++)
-					if ((*lpPostfix)->Tag == TAG_LABEL &&
-						(*lpPostfix)->Length == lpMarkup->Length &&
-						!memcmp((*lpPostfix)->String, lpMarkup->String, lpMarkup->Length))
-						break;
-				if (lpPostfix < lpEndOfPostfix)
-					lpMarkup->Jump = lpPostfix;
-				else
-					goto PARSING_ERROR;
 			}
 			break;
 		case TAG_DELIMITER:
@@ -7403,6 +7570,7 @@ uint64_t __cdecl InternalParsing(TSSGCtrl *this, TSSGSubject *SSGS, const string
 			else
 				lpOperandTop->Real = *(uintptr_t *)&lpOperandTop->Quad;
 			break;
+#if 0
 		case TAG_LEFT_ASSIGN:
 			{
 				size_t length;
@@ -7455,6 +7623,7 @@ uint64_t __cdecl InternalParsing(TSSGCtrl *this, TSSGSubject *SSGS, const string
 				lpPostfix++;
 			}
 			break;
+#endif
 		case TAG_PARSE_INT:
 			if (lpMarkup->Close)
 				lpMarkup->Close->Tag = IsInteger ? TAG_PARSE_INT : TAG_PARSE_REAL;
@@ -8413,7 +8582,7 @@ uint64_t __cdecl InternalParsing(TSSGCtrl *this, TSSGSubject *SSGS, const string
 				size = IsInteger ? (uint64_t)lpOperandTop[1].Quad : (uint64_t)lpOperandTop[1].Real;
 				lpOperandTop->Quad = 0;
 				address = NULL;
-				if ((sizeof(size_t) == sizeof(uint32_t) ? !(size >> 32) && (uint32_t)size : size) && !(id >> 32))
+				if ((sizeof(size_t) > sizeof(uint32_t) || !(size >> 32)) && size && !(id >> 32))
 				{
 					FILETIME creationTime;
 
@@ -12257,7 +12426,7 @@ uint64_t __cdecl InternalParsing(TSSGCtrl *this, TSSGSubject *SSGS, const string
 					{
 						if (!IsStringOperand(lpMarkup))
 						{
-							if (lpNext && lpNext->Tag <= TAG_MNAME && lpNext->Tag >= TAG_MODULENAME)
+							if (lpNext && (lpNext->Tag <= TAG_MNAME && lpNext->Tag >= TAG_MODULENAME || lpNext->Tag == TAG_GOTO))
 								break;
 							if (*p == '$')
 							{
@@ -12399,7 +12568,7 @@ uint64_t __cdecl InternalParsing(TSSGCtrl *this, TSSGSubject *SSGS, const string
 						continue;
 					lpGuideText = lpNext->String;
 #if !defined(__BORLANDC__)
-					nGuideTextLength = lpNext->Length + lpMarkup->Length;
+					nGuideTextLength = lpMarkup->String - lpNext->String + lpMarkup->Length;
 #endif
 					goto OUTPUT_GUIDE;
 				case TAG_INC:
@@ -12545,7 +12714,7 @@ uint64_t __cdecl InternalParsing(TSSGCtrl *this, TSSGSubject *SSGS, const string
 						continue;
 					lpGuideText = lpNext->String;
 #if !defined(__BORLANDC__)
-					nGuideTextLength = lpNext->Length + lpMarkup->Length;
+					nGuideTextLength = lpMarkup->String - lpNext->String + lpMarkup->Length;
 #endif
 					goto OUTPUT_GUIDE;
 				case TAG_PROCEDURE:
@@ -12693,7 +12862,30 @@ uint64_t __cdecl InternalParsing(TSSGCtrl *this, TSSGSubject *SSGS, const string
 						continue;
 					lpGuideText = lpNext->String;
 #if !defined(__BORLANDC__)
-					nGuideTextLength = lpNext->Length + lpMarkup->Length;
+					nGuideTextLength = lpMarkup->String - lpNext->String + lpMarkup->Length;
+#endif
+					goto OUTPUT_GUIDE;
+				case TAG_GOTO:
+					OPERAND_CLEAR();
+					if (lpMarkup->Jump)
+						lpPostfix = lpMarkup->Jump;
+					else
+					{
+						for (lpPostfix = lpPostfixBuffer; lpPostfix < lpEndOfPostfix; lpPostfix++)
+							if ((*lpPostfix)->Tag == TAG_LABEL &&
+								(*lpPostfix)->Length == lpMarkup->Length &&
+								!memcmp((*lpPostfix)->String, lpMarkup->String, lpMarkup->Length))
+								break;
+						if (lpPostfix < lpEndOfPostfix)
+							lpMarkup->Jump = lpPostfix;
+						else
+							goto PARSING_ERROR;
+					}
+					if (!TSSGCtrl_GetSSGActionListner(this))
+						continue;
+					lpGuideText = lpNext->String;
+#if !defined(__BORLANDC__)
+					nGuideTextLength = lpMarkup->String - lpNext->String + lpMarkup->Length;
 #endif
 					goto OUTPUT_GUIDE;
 				default:
@@ -12765,7 +12957,8 @@ uint64_t __cdecl InternalParsing(TSSGCtrl *this, TSSGSubject *SSGS, const string
 		if (lpBuffer1)
 			HeapFree(hHeap, 0, lpBuffer1);
 	OPEN_ERROR:
-		TSSGActionListner_OnProcessOpenError(TSSGCtrl_GetSSGActionListner(this), SSGS);
+		if (!vector_empty(&this->processCtrl.processNameVec))
+			TSSGActionListner_OnProcessOpenError(TSSGCtrl_GetSSGActionListner(this), SSGS);
 		goto PARSING_ERROR;
 
 	READ_ERROR_FREE2:
