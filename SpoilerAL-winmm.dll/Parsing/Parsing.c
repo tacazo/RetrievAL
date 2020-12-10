@@ -2453,18 +2453,15 @@ static MARKUP * __stdcall Markup(IN LPSTR lpSrc, IN size_t nSrcLength, OUT size_
 				break;
 			switch (p[1])
 			{
-				LPCBYTE s;
 			case 'e':
 				if (*(uint32_t *)(p + 2) != BSWAP32('faul'))
 					break;
 				if (p[6] != 't')
 					break;
-				s = p + 7;
-				for (BYTE c; (c = *s, __intrinsic_isspace(c)); s++);
-				if (*s++ != ':')
+				if (p[7] != ':' && !__intrinsic_isspace(p[2]) && p[7] != ';' )
 					break;
 				bNextIsSeparatedLeft = TRUE;
-				APPEND_TAG_WITH_CONTINUE(TAG_DEFAULT, s - p, PRIORITY_DEFAULT, OS_PUSH);
+				APPEND_TAG_WITH_CONTINUE(TAG_DEFAULT, 7, PRIORITY_DEFAULT, OS_PUSH);
 			case 'o':
 				if (p[2] != '(' && !__intrinsic_isspace(p[2]))
 					break;
@@ -4254,26 +4251,38 @@ static MARKUP * __stdcall Markup(IN LPSTR lpSrc, IN size_t nSrcLength, OUT size_
 					lpMarkup->Length = end - lpMarkup->String;
 					lpTag++;
 				}
+				else if (lpMarkup - 2 >= lpMarkupArray && lpMarkup[-1 - (lpMarkup[-1].Tag == TAG_SUB)].Tag == TAG_CASE)
+				{
+					next = (p = lpMarkup->String) + lpMarkup->Length;
+					if ((--lpMarkup)->Tag == TAG_SUB)
+					{
+						p = lpMarkup->String;
+						lpMarkup--;
+					}
+					lpMarkup->NumberOfOperand = strtoul(p, &end, 0);
+					lpMarkup->Length = lpTag->String - lpMarkup->String;
+#if 0
+					if (end < next) lpMarkup->Tag = TAG_PARSE_ERROR;
+#endif
+					if (lpTag->Tag == TAG_TERNARY_SPLIT && !(lpTag->Type & OS_TERNARY))
+					{
+#if 0
+						lpMarkup->Length += lpTag->Length;
+#endif
+						lpTag->Tag = TAG_PARSE_ERROR;
+						lpTag->Type = OS_MONADIC | OS_POST;
+					}
+					else if (lpMarkup == lpMarkupArray || lpMarkup[-1].Tag != TAG_GOTO || lpTag->Tag != TAG_SPLIT)
+					{
+						lpTag->Tag = TAG_PARSE_ERROR;
+						lpTag->Type |= OS_PUSH;
+					}
+				}
 				else if (lpTag->Tag == TAG_TERNARY_SPLIT && !(lpTag->Type & OS_TERNARY))
 				{
-					if (lpMarkup - 2 >= lpMarkupArray && lpMarkup[-1 - (lpMarkup[-1].Tag == TAG_SUB)].Tag == TAG_CASE)
-					{
-						next = (p = lpMarkup->String) + lpMarkup->Length;
-						if ((--lpMarkup)->Tag == TAG_SUB)
-						{
-							p = lpMarkup->String;
-							lpMarkup--;
-						}
-						lpMarkup->NumberOfOperand = strtoul(p, &end, 0);
-						lpMarkup->Length = lpTag->String - lpMarkup->String + lpTag->Length;
-					//	if (end < next) lpMarkup->Tag = TAG_PARSE_ERROR;
-					}
-					else
-					{
-						lpMarkup->Tag      = TAG_LABEL;
-						lpMarkup->Priority = PRIORITY_LABEL;
-					}
-					lpTag->Tag  = TAG_PARSE_ERROR;
+					lpMarkup->Tag = TAG_LABEL;
+					lpMarkup->Priority = PRIORITY_LABEL;
+					lpTag->Tag = TAG_PARSE_ERROR;
 					lpTag->Type = OS_MONADIC | OS_POST;
 				}
 
@@ -4958,28 +4967,42 @@ static MARKUP * __stdcall Markup(IN LPSTR lpSrc, IN size_t nSrcLength, OUT size_
 				continue;
 			lpCode->Next = lpMarkup->Next;
 			break;
+		case TAG_GOTO:
+#if 0
+			if (lpCode->Depth != lpMarkup->Depth + 1) continue;
+#endif
+			if (++lpCode >= lpMarkup->Next ||
+				lpCode->Tag != TAG_CASE && lpCode->Tag != TAG_DEFAULT)
+				continue;
+			lpCode->Param = lpMarkup->Param;
+			break;
 		case TAG_CASE:
-			if (lpCode->Depth == lpMarkup->Depth + 1)
+#if 0
+			if (lpCode->Depth != lpMarkup->Depth + 1) continue;
+#endif
+			if (lpLink->Tag != TAG_DEFAULT)
 			{
-				if (lpLink->Tag != TAG_DEFAULT)
-				{
-					lpLink->Next = lpCode;
-					lpLink = lpCode;
-				}
-				else
-				{
-					lpCode->Next = lpLink;
-					lpLink->Param->Next = lpCode;
-					lpLink->Param = lpCode;
-				}
+				lpLink->Next = lpCode;
+				lpLink = lpCode;
+			}
+			else
+			{
+				lpCode->Next = lpLink;
+				lpLink->Param->Next = lpCode;
+				lpLink->Param = lpCode;
 			}
 			break;
 		case TAG_DEFAULT:
-			if (lpCode->Depth == lpMarkup->Depth + 1)
+#if 0
+			if (lpCode->Depth != lpMarkup->Depth + 1) continue;
+#endif
+			lpCode->Param = lpLink;
+			lpLink->Next = lpCode;
+			lpLink = lpCode;
+			if (++lpCode < lpMarkup->Next && lpCode->Tag == TAG_TERNARY_SPLIT && !(lpCode->Type & OS_TERNARY))
 			{
-				lpCode->Param = lpLink;
-				lpLink->Next = lpCode;
-				lpLink = lpCode;
+				lpCode->Tag = TAG_PARSE_ERROR;
+				lpCode->Type = OS_MONADIC | OS_POST;
 			}
 			break;
 		}
@@ -6223,7 +6246,38 @@ uint64_t __cdecl InternalParsing(TSSGCtrl *this, TSSGSubject *SSGS, const string
 			}
 		case TAG_CASE:
 		case TAG_DEFAULT:
-			continue;
+			if (lpPostfix + 1 >= lpEndOfPostfix || lpPostfix[1]->Tag != TAG_GOTO)
+				continue;
+			OPERAND_CLEAR();
+			if (lpMarkup->FalsePart)
+				lpPostfix = lpMarkup->FalsePart;
+			else
+			{
+				lpNext = lpMarkup->Param->Next;
+				while (lpNext && (lpNext->Tag != lpMarkup->Tag ||
+								  lpNext->Type != lpMarkup->Type ||
+								  lpNext->NumberOfOperand != lpMarkup->NumberOfOperand))
+					lpNext = lpNext->Next;
+				if (lpNext)
+				{
+					if (lpNext->FalsePart)
+						lpPostfix = lpMarkup->FalsePart = lpNext->FalsePart;
+					else
+					{
+						for (lpPostfix = lpPostfixBuffer; lpPostfix < lpEndOfPostfix && *lpPostfix != lpNext; lpPostfix++);
+						lpMarkup->FalsePart = lpNext->FalsePart = lpPostfix;
+					}
+				}
+				else
+					goto PARSING_ERROR;
+			}
+			if (!TSSGCtrl_GetSSGActionListner(this))
+				continue;
+			lpGuideText = lpMarkup[-1].String;
+#if !defined(__BORLANDC__)
+			nGuideTextLength = lpMarkup->String - lpMarkup[-1].String + lpMarkup->Length;
+#endif
+			goto OUTPUT_GUIDE;
 		case TAG_SWITCH_EXPR:
 			lpAddress = (boolValue = OPERAND_IS_EMPTY()) ? 0 : IsInteger ? (LPVOID)lpOperandTop[0].Quad : (LPVOID)(uintptr_t)lpOperandTop[0].Real;
 			OPERAND_CLEAR();
